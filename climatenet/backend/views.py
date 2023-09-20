@@ -1,43 +1,80 @@
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status
-from django.http import HttpResponse
 from rest_framework.response import Response
-from rest_framework.decorators import action
-from backend.models import Devices
-from backend.serializers import DeviceDetailsSerializer
-from backend.connect_database import connect_to_postgresql, execute_query
-
-# Create your views here.
+from backend.models import Devices, WeatherData
+from backend.serializers import DeviceDetailsSerializer, WeatherDataSerializer
+import psycopg2
 
 class DeviceDetailsViewSet(viewsets.ModelViewSet):
     queryset = Devices.objects.all()
     serializer_class = DeviceDetailsSerializer
 
-    @action(detail=True, methods=['GET'])
-    def weather_data(self, request, pk=None):
-        device = get_object_or_404(Devices, pk=pk)
-        weather_data_instances = WeatherData.objects.filter(device=device)
-        serializer = WeatherDataSerializer(weather_data_instances, many=True)
-        return Response(serializer.data)
+    def retrieve_device(self, request, pk=None):
+        try:
+            # Replace these values with your database details
+            host = "climatenet.c8nb4zcoufs1.us-east-1.rds.amazonaws.com"
+            database = "raspi_data"
+            user = "postgres"
+            password = "climatenet2024"
 
-    def list(self, request):
-        # Replace these values with your database details and SQL query
-        host = "localhost"
-        database = "backend"
-        user = "postgres"
-        password = "cliametnet2024"
-        query = "SELECT * FROM weather_data"
-        # Connect to the PostgreSQL database
-        connection = connect_to_postgresql(host, database, user, password)
+            # Create a connection to the PostgreSQL database
+            connection = psycopg2.connect(
+                host=host,
+                database=database,
+                user=user,
+                password=password
+            )
+            # Create a cursor object to execute SQL queries
+            cursor = connection.cursor()
 
-        if connection:
+            # Determine the table name based on the device ID
+            table_name = f"device{pk}"
+
+            # Debug: Print the generated table name
+            print("Generated Table Name:", table_name)
+
+            # Replace this query with your SQL query
+            query = f"SELECT * FROM {table_name} ORDER BY id DESC LIMIT 10"
+
+            # Debug: Print the executed SQL query
+            print("Executed SQL Query:", query)
+
             # Execute the SQL query
-            result = execute_query(connection, query)
+            cursor.execute(query)
 
-            if result:
-                # Do something with the result
-                # Here, we'll convert it to a list of dictionaries
-                data = [{'name': row[0], 'description': row[1]} for row in result]
-                return Response(data)
+            # Fetch all the results
+            results = cursor.fetchall()
 
-        return Response([])  # Return an empty response if there's an error
+            data_list = []
+            for result in results:
+                # Debug: Print the result
+                print("Result:", result)
+
+                data = {
+                    'time': result[1],
+                    'light': result[2],
+                    'temperature': result[3],
+                    'pressure': result[4],
+                    'humidity': result[5],
+                    'pm1': result[6],
+                    'pm2_5': result[7],
+                    'pm10': result[8],
+                    'co2': result[9],
+                    'speed': result[10],
+                    'rain': result[11],
+                    'direction': result[12],
+                }
+                data_list.append(data)
+
+            # Debug: Print the data_list
+            print("Data List:", data_list)
+
+            return Response(data_list)
+
+        except psycopg2.Error as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        finally:
+            cursor.close()
+            connection.close()
+

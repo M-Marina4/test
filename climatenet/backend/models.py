@@ -11,9 +11,7 @@ class Devices(models.Model):
     def __str__(self):
         return self.device_name
 
-
 class WeatherData(models.Model):
-    device = models.ForeignKey(Devices, on_delete=models.CASCADE)
     time = models.DateTimeField()
     light = models.FloatField()
     temperature = models.FloatField()
@@ -22,13 +20,11 @@ class WeatherData(models.Model):
     pm1 = models.FloatField()
     pm2_5 = models.FloatField()
     pm10 = models.FloatField()
-    atmospheric_pm1 = models.FloatField()
-    atmospheric_pm2_5 = models.FloatField()
-    atmospheric_pm10 = models.FloatField()
-    co2 = models.FloatField() 
+    co2 = models.FloatField()
     speed = models.FloatField()
     rain = models.FloatField()
     direction = models.TextField()
 
     def __str__(self):
-        return str(self.time)
+        return f"Device1 ID: {self.id}"
+
