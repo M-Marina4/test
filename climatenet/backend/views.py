@@ -1,22 +1,22 @@
-from django.shortcuts import get_object_or_404
-from rest_framework import viewsets, status
-from rest_framework.response import Response
-from backend.models import Devices, WeatherData
-from backend.serializers import DeviceDetailsSerializer, WeatherDataSerializer
 import psycopg2
+from rest_framework import generics
+from rest_framework import status
+from rest_framework.response import Response
+from .serializers import DeviceSerializer
 
-class DeviceDetailsViewSet(viewsets.ModelViewSet):
-    queryset = Devices.objects.all()
-    serializer_class = DeviceDetailsSerializer
+class DeviceDetailView(generics.ListAPIView):  # Change to ListAPIView
+    serializer_class = DeviceSerializer
 
-    def retrieve_device(self, request, pk=None):
+    def get_queryset(self):
+        device_id = self.kwargs.get('device_id')
+
+        # Define the PostgreSQL connection parameters
+        host = "climatenet.c8nb4zcoufs1.us-east-1.rds.amazonaws.com"
+        database = "raspi_data"
+        user = "postgres"
+        password = "climatenet2024"
+
         try:
-            # Replace these values with your database details
-            host = "climatenet.c8nb4zcoufs1.us-east-1.rds.amazonaws.com"
-            database = "raspi_data"
-            user = "postgres"
-            password = "climatenet2024"
-
             # Create a connection to the PostgreSQL database
             connection = psycopg2.connect(
                 host=host,
@@ -24,57 +24,55 @@ class DeviceDetailsViewSet(viewsets.ModelViewSet):
                 user=user,
                 password=password
             )
+
             # Create a cursor object to execute SQL queries
             cursor = connection.cursor()
 
-            # Determine the table name based on the device ID
-            table_name = f"device{pk}"
+            # Construct the table name based on the device_id
+            table_name = f'device{device_id}'
 
-            # Debug: Print the generated table name
-            print("Generated Table Name:", table_name)
-
-            # Replace this query with your SQL query
-            query = f"SELECT * FROM {table_name} ORDER BY id DESC LIMIT 10"
-
-            # Debug: Print the executed SQL query
-            print("Executed SQL Query:", query)
-
-            # Execute the SQL query
+            # Execute a query to retrieve the last 10 rows from the corresponding table
+            query = f"SELECT * FROM {table_name} ORDER BY time DESC LIMIT 10;"
             cursor.execute(query)
 
-            # Fetch all the results
-            results = cursor.fetchall()
+            # Fetch all 10 rows
+            rows = cursor.fetchall()
 
-            data_list = []
-            for result in results:
-                # Debug: Print the result
-                print("Result:", result)
+            # Check if any rows were found
+            if rows:
+                # Convert the rows into a list of dictionaries
+                device_data = []
+                for row in rows:
+                    device_data.append({
+                        'time': row[1],
+                        'light': row[2],
+                        'temperature': row[3],
+                        'pressure': row[4],
+                        'humidity': row[5],
+                        'pm1': row[6],
+                        'pm2_5': row[7],
+                        'pm10': row[8],
+                        'co2': row[9],
+                        'speed': row[10],
+                        'rain': row[11],
+                        'direction': row[12],
+                    })
 
-                data = {
-                    'time': result[1],
-                    'light': result[2],
-                    'temperature': result[3],
-                    'pressure': result[4],
-                    'humidity': result[5],
-                    'pm1': result[6],
-                    'pm2_5': result[7],
-                    'pm10': result[8],
-                    'co2': result[9],
-                    'speed': result[10],
-                    'rain': result[11],
-                    'direction': result[12],
-                }
-                data_list.append(data)
+                return device_data
+            else:
+                return []
 
-            # Debug: Print the data_list
-            print("Data List:", data_list)
+        except Exception as e:
+            return []
 
-            return Response(data_list)
+    def list(self, request, *args, **kwargs):  # Use list method for ListAPIView
+        queryset = self.get_queryset()
 
-        except psycopg2.Error as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        if not queryset:
+            return Response({'detail': 'No data found for this device.'}, status=status.HTTP_404_NOT_FOUND)
 
-        finally:
-            cursor.close()
-            connection.close()
-
+        serializer = DeviceSerializer(data=queryset, many=True)
+        if serializer.is_valid():
+            return Response(serializer.validated_data)
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

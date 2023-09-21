@@ -1,15 +1,7 @@
 from rest_framework import serializers
-from backend.models import Devices, WeatherData
+from .models import Device
 
-class WeatherDataSerializer(serializers.ModelSerializer):
+class DeviceSerializer(serializers.ModelSerializer):
     class Meta:
-        model = WeatherData
+        model = Device
         fields = '__all__'
-
-class DeviceDetailsSerializer(serializers.ModelSerializer):
-    weather_data = WeatherDataSerializer(many=True, read_only=True)
-
-    class Meta:
-        model = Devices
-        fields = '__all__'
-
