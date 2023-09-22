@@ -3,12 +3,24 @@ from rest_framework import generics
 from rest_framework import status
 from rest_framework.response import Response
 from .serializers import DeviceSerializer
+from datetime import datetime, timedelta
 
-class DeviceDetailView(generics.ListAPIView):  # Change to ListAPIView
+class DeviceDetailView(generics.ListAPIView):
     serializer_class = DeviceSerializer
 
     def get_queryset(self):
         device_id = self.kwargs.get('device_id')
+
+        # Get start_time and end_time from query parameters, if specified
+        start_time_str = self.request.query_params.get('start_time_str')
+        end_time_str = self.request.query_params.get('end_time_str')
+
+        # If start_time and end_time are not specified, calculate the date range for the last 24 hours of the previous day
+        if not (start_time_str and end_time_str):
+            end_time = datetime.now() - timedelta(days=1)
+            start_time = end_time - timedelta(hours=24)
+            start_time_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
+            end_time_str = end_time.strftime('%Y-%m-%d %H:%M:%S')
 
         # Define the PostgreSQL connection parameters
         host = "climatenet.c8nb4zcoufs1.us-east-1.rds.amazonaws.com"
@@ -31,11 +43,11 @@ class DeviceDetailView(generics.ListAPIView):  # Change to ListAPIView
             # Construct the table name based on the device_id
             table_name = f'device{device_id}'
 
-            # Execute a query to retrieve the last 10 rows from the corresponding table
-            query = f"SELECT * FROM {table_name} ORDER BY time DESC LIMIT 10;"
-            cursor.execute(query)
+            # Execute a query to retrieve rows within the specified time range
+            query = f"SELECT * FROM {table_name} WHERE time >= %s AND time <= %s ORDER BY time DESC;"
+            cursor.execute(query, (start_time_str, end_time_str))
 
-            # Fetch all 10 rows
+            # Fetch all rows within the time range
             rows = cursor.fetchall()
 
             # Check if any rows were found
@@ -65,14 +77,15 @@ class DeviceDetailView(generics.ListAPIView):  # Change to ListAPIView
         except Exception as e:
             return []
 
-    def list(self, request, *args, **kwargs):  # Use list method for ListAPIView
+    def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
 
         if not queryset:
-            return Response({'detail': 'No data found for this device.'}, status=status.HTTP_404_NOT_FOUND)
+            return Response({'detail': 'No data found for this device in the specified time range.'}, status=status.HTTP_404_NOT_FOUND)
 
         serializer = DeviceSerializer(data=queryset, many=True)
         if serializer.is_valid():
             return Response(serializer.validated_data)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
