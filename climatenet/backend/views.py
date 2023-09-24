@@ -1,9 +1,10 @@
-import psycopg2
 from rest_framework import generics
 from rest_framework import status
 from rest_framework.response import Response
 from .serializers import DeviceSerializer
 from datetime import datetime, timedelta
+import psycopg2
+import pandas as pd
 
 class DeviceDetailView(generics.ListAPIView):
     serializer_class = DeviceSerializer
@@ -14,13 +15,6 @@ class DeviceDetailView(generics.ListAPIView):
         # Get start_time and end_time from query parameters, if specified
         start_time_str = self.request.query_params.get('start_time_str')
         end_time_str = self.request.query_params.get('end_time_str')
-
-        # If start_time and end_time are not specified, calculate the date range for the last 24 hours of the previous day
-        if not (start_time_str and end_time_str):
-            end_time = datetime.now() - timedelta(days=1)
-            start_time = end_time - timedelta(hours=24)
-            start_time_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
-            end_time_str = end_time.strftime('%Y-%m-%d %H:%M:%S')
 
         # Define the PostgreSQL connection parameters
         host = "climatenet.c8nb4zcoufs1.us-east-1.rds.amazonaws.com"
@@ -43,9 +37,14 @@ class DeviceDetailView(generics.ListAPIView):
             # Construct the table name based on the device_id
             table_name = f'device{device_id}'
 
-            # Execute a query to retrieve rows within the specified time range
-            query = f"SELECT * FROM {table_name} WHERE time >= %s AND time <= %s ORDER BY time DESC;"
-            cursor.execute(query, (start_time_str, end_time_str))
+            if start_time_str and end_time_str:
+                # If start_time and end_time are specified, execute a query to retrieve data within the specified time range
+                query = f"SELECT * FROM {table_name} WHERE time >= %s AND time <= %s ORDER BY time DESC;"
+                cursor.execute(query, (start_time_str, end_time_str))
+            else:
+                # If start_time and end_time are not specified, execute a query to retrieve the last 96 data points
+                query = f"SELECT * FROM {table_name} ORDER BY time DESC LIMIT 96;"
+                cursor.execute(query)
 
             # Fetch all rows within the time range
             rows = cursor.fetchall()
@@ -70,22 +69,26 @@ class DeviceDetailView(generics.ListAPIView):
                         'direction': row[12],
                     })
 
-                return device_data
+                # Convert the data into a pandas DataFrame
+                df = pd.DataFrame(device_data)
+
+                # Convert the 'time' column to a datetime object
+                df['time'] = pd.to_datetime(df['time'])
+
+                if not (start_time_str and end_time_str):
+                    # Split the data into groups of 4 and calculate the mean for each group
+                    num_groups = len(df) // 4
+                    group_means = []
+                    for i in range(num_groups):
+                        group = df.iloc[i * 4: (i + 1) * 4]
+                        group_mean = group.mean().to_dict()
+                        group_means.append(group_mean)
+
+                    return group_means
+                else:
+                    return device_data
             else:
                 return []
 
         except Exception as e:
             return []
-
-    def list(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
-
-        if not queryset:
-            return Response({'detail': 'No data found for this device in the specified time range.'}, status=status.HTTP_404_NOT_FOUND)
-
-        serializer = DeviceSerializer(data=queryset, many=True)
-        if serializer.is_valid():
-            return Response(serializer.validated_data)
-        else:
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
